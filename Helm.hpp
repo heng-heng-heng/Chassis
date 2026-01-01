@@ -79,6 +79,7 @@ class Helm {
        RMMotor *motor_steer_2, RMMotor *motor_steer_3, CMD *cmd,
        PowerControl *power_control,uint32_t task_stack_depth,
        ChassisParam chassis_param,
+       LibXR::PID<float>::Param pid_follow,
        LibXR::PID<float>::Param pid_velocity_x,
        LibXR::PID<float>::Param pid_velocity_y,
        LibXR::PID<float>::Param pid_omega,  // 此时姑且认为pid_omega_为gimbal_follow的pid
@@ -103,6 +104,7 @@ class Helm {
         motor_steer_1_(motor_steer_1),
         motor_steer_2_(motor_steer_2),
         motor_steer_3_(motor_steer_3),
+        pid_follow_(pid_follow),
         pid_velocity_x_(pid_velocity_x),
         pid_velocity_y_(pid_velocity_y),
         pid_omega_(pid_omega),
@@ -136,10 +138,10 @@ class Helm {
   static void ThreadFunction(Helm *helm) {
     helm->mutex_.Lock();
     LibXR::Topic::ASyncSubscriber<CMD::ChassisCMD> cmd_suber("chassis_cmd");
-    LibXR::Topic::ASyncSubscriber<float> current_yaw_suber("chassis_yaw");
+    //LibXR::Topic::ASyncSubscriber<float> current_yaw_suber("chassis_yaw");
 
     cmd_suber.StartWaiting();
-    current_yaw_suber.StartWaiting();
+    //current_yaw_suber.StartWaiting();
 
     helm->mutex_.Unlock();
     while (true) {
@@ -148,10 +150,10 @@ class Helm {
         cmd_suber.StartWaiting();
       }
 
-      if (current_yaw_suber.Available()) {
-        helm->current_yaw_ = current_yaw_suber.GetData();
-        current_yaw_suber.StartWaiting();
-      }
+      // if (current_yaw_suber.Available()) {
+      //   helm->current_yaw_ = current_yaw_suber.GetData();
+      //   current_yaw_suber.StartWaiting();
+      // }
 
       helm->mutex_.Lock();
       helm->Update();
@@ -332,7 +334,7 @@ class Helm {
         main_direct_ = -current_yaw_;
         break;
       case static_cast<uint32_t>(Chassismode::FOLLOW):  // gimbal_follow
-        target_omega_ = pid_omega_.Calculate(0.0f, current_yaw_, dt_) * 0.25f;
+        target_omega_ = pid_follow_.Calculate(0.0f, current_yaw_, dt_) * 0.25f;
         break;
       case static_cast<uint32_t>(Chassismode::ROTOR):  // rotor
         /* 陀螺模式底盘以一定速度旋转 */
@@ -575,6 +577,8 @@ class Helm {
   RMMotor *motor_steer_2_;
   RMMotor *motor_steer_3_;
 
+
+  LibXR::PID<float> pid_follow_;
   LibXR::PID<float> pid_velocity_x_;
   LibXR::PID<float> pid_velocity_y_;
   LibXR::PID<float> pid_omega_;  // 此时姑且认为pid_omega_为gimbal_follow的pid
