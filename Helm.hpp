@@ -523,23 +523,27 @@ class Helm {
   }
 
   void Output() {
-    if (power_control_data_.is_power_limited) {
-      for (int i = 0; i < 4; i++) {
-        wheel_out_[i] = power_control_data_.new_output_current_3508[i];
-        steer_out_[i] = power_control_data_.new_output_current_6020[i];
-      }
+    if (chassis_event_ == static_cast<uint32_t>(Chassismode::RELAX)){
+      LostCtrl();
     }
+    else{
+      if (power_control_data_.is_power_limited) {
+        for (int i = 0; i < 4; i++) {
+          wheel_out_[i] = power_control_data_.new_output_current_3508[i];
+          steer_out_[i] = power_control_data_.new_output_current_6020[i];
+        }
+      }
+      motor_wheel_0_->CurrentControl(wheel_out_[0]);
+      motor_wheel_1_->CurrentControl(wheel_out_[1]);
+      motor_wheel_2_->CurrentControl(wheel_out_[2]);
+      motor_wheel_3_->CurrentControl(wheel_out_[3]);
+      motor_steer_0_->CurrentControl(steer_out_[0]);
+      motor_steer_1_->CurrentControl(steer_out_[1]);
+      motor_steer_2_->CurrentControl(steer_out_[2]);
+      motor_steer_3_->CurrentControl(steer_out_[3]);
 
-    motor_wheel_0_->CurrentControl(wheel_out_[0]);
-    motor_wheel_1_->CurrentControl(wheel_out_[1]);
-    motor_wheel_2_->CurrentControl(wheel_out_[2]);
-    motor_wheel_3_->CurrentControl(wheel_out_[3]);
-    motor_steer_0_->CurrentControl(steer_out_[0]);
-    motor_steer_1_->CurrentControl(steer_out_[1]);
-    motor_steer_2_->CurrentControl(steer_out_[2]);
-    motor_steer_3_->CurrentControl(steer_out_[3]);
   }
-
+}
  private:
   const ChassisParam PARAM;
 

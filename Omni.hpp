@@ -145,7 +145,7 @@ class Omni {
         [](bool in_isr, Omni *omni, uint32_t event_id) {
           UNUSED(in_isr);
           UNUSED(event_id);
-          omni->LostCtrl();
+          omni->chassis_event_ = static_cast<uint32_t>(Chassismode::RELAX);
         },
         this);
     cmd_->GetEvent().Register(CMD::CMD_EVENT_LOST_CTRL, lost_ctrl_callback);
@@ -437,38 +437,43 @@ class Omni {
      * @details 限幅并输出四个全向轮的电流控制指令
      */
     void OutputToDynamics() {
-      // TODO:判断电机返回值是否正常
-      target_motor_current_[0] = pid_wheel_omega_[0].Calculate(
-          target_motor_omega_[0],
-          motor_wheel_0_->GetOmega() / PARAM.reductionratio, dt_);
-
-      target_motor_current_[1] = pid_wheel_omega_[1].Calculate(
-          target_motor_omega_[1],
-          motor_wheel_1_->GetOmega() / PARAM.reductionratio, dt_);
-
-      target_motor_current_[2] = pid_wheel_omega_[2].Calculate(
-          target_motor_omega_[2],
-          motor_wheel_2_->GetOmega() / PARAM.reductionratio, dt_);
-
-      target_motor_current_[3] = pid_wheel_omega_[3].Calculate(
-          target_motor_omega_[3],
-          motor_wheel_3_->GetOmega() / PARAM.reductionratio, dt_);
-
-    /*如果超功率了output根据功率的数值来计算*/
-
-      if (power_control_data_.is_power_limited) {
-        for (int i = 0; i < 4; i++) {
-          output_[i] =
-              power_control_data_.new_output_current_3508[i] /
-              (motor_wheel_0_->GetLSB() / PARAM.reductionratio /
-               motor_wheel_0_->KGetTorque() / motor_wheel_0_->GetCurrentMAX());
-        }
+      if(chassis_event_==static_cast<uint32_t>(Chassismode::RELAX)){
+         LostCtrl();
       }
+      else{
+        // TODO:判断电机返回值是否正常
+        target_motor_current_[0] = pid_wheel_omega_[0].Calculate(
+            target_motor_omega_[0],
+            motor_wheel_0_->GetOmega() / PARAM.reductionratio, dt_);
 
-      motor_wheel_0_->TorqueControl(output_[0], PARAM.reductionratio);
-      motor_wheel_1_->TorqueControl(output_[1], PARAM.reductionratio);
-      motor_wheel_2_->TorqueControl(output_[2], PARAM.reductionratio);
-      motor_wheel_3_->TorqueControl(output_[3], PARAM.reductionratio);
+        target_motor_current_[1] = pid_wheel_omega_[1].Calculate(
+            target_motor_omega_[1],
+            motor_wheel_1_->GetOmega() / PARAM.reductionratio, dt_);
+
+        target_motor_current_[2] = pid_wheel_omega_[2].Calculate(
+            target_motor_omega_[2],
+            motor_wheel_2_->GetOmega() / PARAM.reductionratio, dt_);
+
+        target_motor_current_[3] = pid_wheel_omega_[3].Calculate(
+            target_motor_omega_[3],
+            motor_wheel_3_->GetOmega() / PARAM.reductionratio, dt_);
+
+        /*如果超功率了output根据功率的数值来计算*/
+
+        if (power_control_data_.is_power_limited) {
+          for (int i = 0; i < 4; i++) {
+            output_[i] = power_control_data_.new_output_current_3508[i] /
+                         (motor_wheel_0_->GetLSB() / PARAM.reductionratio /
+                          motor_wheel_0_->KGetTorque() /
+                          motor_wheel_0_->GetCurrentMAX());
+          }
+        }
+
+        motor_wheel_0_->TorqueControl(output_[0], PARAM.reductionratio);
+        motor_wheel_1_->TorqueControl(output_[1], PARAM.reductionratio);
+        motor_wheel_2_->TorqueControl(output_[2], PARAM.reductionratio);
+        motor_wheel_3_->TorqueControl(output_[3], PARAM.reductionratio);
+      }
     }
 
   void LostCtrl() {
