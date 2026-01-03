@@ -80,9 +80,8 @@ class Omni {
    * @param pid_steer_angle_3 舵机3角度PID参数（本底盘未使用）
    */
   Omni(LibXR::HardwareContainer &hw, LibXR::ApplicationManager &app,
-       RMMotor *motor_wheel_0, RMMotor *motor_wheel_1,
-       RMMotor *motor_wheel_2, RMMotor *motor_wheel_3,
-       RMMotor *motor_steer_0, RMMotor *motor_steer_1,
+       RMMotor *motor_wheel_0, RMMotor *motor_wheel_1, RMMotor *motor_wheel_2,
+       RMMotor *motor_wheel_3, RMMotor *motor_steer_0, RMMotor *motor_steer_1,
        RMMotor *motor_steer_2, RMMotor *motor_steer_3, CMD *cmd,
        PowerControl *power_control, uint32_t task_stack_depth,
        ChassisParam chassis_param,
@@ -214,6 +213,16 @@ class Omni {
 
   void PowerControlUpdate() {
     /*给功率控制的数据*/
+    for (int i = 0; i < 4; i++) {
+    /*将扭矩转换为电流值*/
+      motor_data_.output_current_3508[i] =
+          output_[i] *
+          (motor_wheel_0_->GetLSB() / PARAM.reductionratio /
+           motor_wheel_0_->KGetTorque() / motor_wheel_0_->GetCurrentMAX());
+
+      motor_data_.target_motor_omega_3508[i] = target_motor_omega_[i];
+    }
+
     motor_data_.rotorspeed_rpm_3508[0] = motor_wheel_0_->GetRPM();
     motor_data_.rotorspeed_rpm_3508[1] = motor_wheel_1_->GetRPM();
     motor_data_.rotorspeed_rpm_3508[2] = motor_wheel_2_->GetRPM();
@@ -227,18 +236,25 @@ class Omni {
         motor_wheel_2_->GetOmega() / PARAM.reductionratio;
     motor_data_.current_motor_omega_3508[3] =
         motor_wheel_3_->GetOmega() / PARAM.reductionratio;
+    /*6020数据 不存在 全0*/
+    memset(motor_data_.output_current_6020, 0,
+           sizeof(motor_data_.output_current_6020));
+    memset(motor_data_.rotorspeed_rpm_6020, 0,
+           sizeof(motor_data_.rotorspeed_rpm_6020));
+    memset(motor_data_.target_motor_omega_6020, 0,
+           sizeof(motor_data_.target_motor_omega_6020));
+    memset(motor_data_.current_motor_omega_6020, 0,
+           sizeof(motor_data_.current_motor_omega_6020));
 
-    motor_data_.target_motor_omega_3508[0] = target_motor_omega_[0];
-    motor_data_.target_motor_omega_3508[1] = target_motor_omega_[1];
-    motor_data_.target_motor_omega_3508[2] = target_motor_omega_[2];
-    motor_data_.target_motor_omega_3508[3] = target_motor_omega_[3];
-
+    /*获取3508拟合的参数 2ms更新*/
     power_control_->CalculatePowerControlParam(
-        motor_data_.output_current_3508, motor_data_.rotorspeed_rpm_3508,
+        motor_data_.output_current_3508,
+        motor_data_.rotorspeed_rpm_3508,
         motor_data_.target_motor_omega_3508,
         motor_data_.current_motor_omega_3508,
 
-        motor_data_.output_current_6020, motor_data_.rotorspeed_rpm_6020,
+        motor_data_.output_current_6020,
+        motor_data_.rotorspeed_rpm_6020,
         motor_data_.target_motor_omega_6020,
         motor_data_.current_motor_omega_6020);
 
@@ -438,15 +454,7 @@ class Omni {
           target_motor_omega_[3],
           motor_wheel_3_->GetOmega() / PARAM.reductionratio, dt_);
 
-      for (int i = 0; i < 4; i++) {
-        output_[i] = (target_motor_current_[i] +
-                      target_motor_force_[i] * PARAM.wheel_radius+torque_ff_[i]);
-
-        motor_data_.output_current_3508[i] =
-            output_[i] *
-            (motor_wheel_0_->GetLSB() / PARAM.reductionratio /
-             motor_wheel_0_->KGetTorque() / motor_wheel_0_->GetCurrentMAX());
-      }
+    /*如果超功率了output根据功率的数值来计算*/
 
       if (power_control_data_.is_power_limited) {
         for (int i = 0; i < 4; i++) {
@@ -605,7 +613,7 @@ class Omni {
   CMD *cmd_;
   CMD::ChassisCMD cmd_data_;
 
-  MotorData motor_data_;
+  MotorData motor_data_ = {};
   PowerControl *power_control_;
   PowerControl::PowerControlData power_control_data_;
   LibXR::EulerAngle<float> euler_;

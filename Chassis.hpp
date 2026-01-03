@@ -172,8 +172,7 @@ class Chassis : public LibXR::Application {
           RMMotor *motor_wheel_2, RMMotor *motor_wheel_3,
           RMMotor *motor_steer_0, RMMotor *motor_steer_1,
           RMMotor *motor_steer_2, RMMotor *motor_steer_3, CMD *cmd,
-          PowerControl *power_control,
-          uint32_t task_stack_depth,
+          PowerControl *power_control, uint32_t task_stack_depth,
           ChassisParam chassis_param = {},
           LibXR::PID<float>::Param pid_follow_={},
           LibXR::PID<float>::Param pid_velocity_x_ = {},
@@ -219,8 +218,7 @@ class Chassis : public LibXR::Application {
 
     chassis_event_.Register(static_cast<uint32_t>(ChassisEvent::SET_MODE_ROTOR), callback);
 
-    chassis_event_.Register(
-        static_cast<uint32_t>(ChassisEvent::SET_MODE_INDEPENDENT), callback);
+    chassis_event_.Register(static_cast<uint32_t>(ChassisEvent::SET_MODE_INDEPENDENT), callback);
   }
 
   /**
