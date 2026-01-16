@@ -14,6 +14,7 @@ depends: []
 
 #include "CMD.hpp"
 #include "Chassis.hpp"
+#include "Gimbal.hpp"
 #include "PowerControl.hpp"
 #include "RMMotor.hpp"
 #include "app_framework.hpp"
@@ -22,7 +23,6 @@ depends: []
 #include "libxr_def.hpp"
 #include "libxr_time.hpp"
 #include "pid.hpp"
-
 #define MOTOR_MAX_OMEGA 52 /* 电机输出轴最大角速度 */
 
 template <typename ChassisType>
@@ -39,14 +39,17 @@ class Helm {
   };
   enum class Chassismode : uint8_t {
     RELAX,
-    ROTOR,
-    FOLLOW,
     INDEPENDENT,
+    ROTOR,
     FOLLOW6020,
+    FOLLOW,
+
+
+
   };
 
   /**
-   * @brief 构造函数，初始化舵轮底盘控制对象
+   * @brief 构造函数，初始化全向轮底盘控制对象
    * @param hw 硬件容器引用
    * @param app 应用管理器引用
    * @param cmd 控制命令引用
@@ -59,7 +62,7 @@ class Helm {
    * @param motor_steer_2 第2个舵向电机指针
    * @param motor_steer_3 第3个舵向电机指针
    * @param task_stack_depth 控制线程栈深度
-   * @param chassis_param 舵轮底盘参数
+   * @param chassis_param 全向轮底盘参数
    * @param pid_velocity_x X方向速度PID参数
    * @param pid_velocity_y Y方向速度PID参数
    * @param pid_omega 角速度PID参数
@@ -73,16 +76,15 @@ class Helm {
    * @param pid_steer_angle_3 舵机3角度PID参数
    */
   Helm(LibXR::HardwareContainer &hw, LibXR::ApplicationManager &app,
-       RMMotor *motor_wheel_0, RMMotor *motor_wheel_1,
-       RMMotor *motor_wheel_2, RMMotor *motor_wheel_3,
-       RMMotor *motor_steer_0, RMMotor *motor_steer_1,
+       RMMotor *motor_wheel_0, RMMotor *motor_wheel_1, RMMotor *motor_wheel_2,
+       RMMotor *motor_wheel_3, RMMotor *motor_steer_0, RMMotor *motor_steer_1,
        RMMotor *motor_steer_2, RMMotor *motor_steer_3, CMD *cmd,
-       PowerControl *power_control,uint32_t task_stack_depth,
-       ChassisParam chassis_param,
-       LibXR::PID<float>::Param pid_follow,
+       PowerControl *power_control, uint32_t task_stack_depth,
+       ChassisParam chassis_param, LibXR::PID<float>::Param pid_follow,
        LibXR::PID<float>::Param pid_velocity_x,
        LibXR::PID<float>::Param pid_velocity_y,
-       LibXR::PID<float>::Param pid_omega,  // 此时姑且认为pid_omega_为gimbal_follow的pid
+       LibXR::PID<float>::Param
+           pid_omega,  // 此时姑且认为pid_omega_为gimbal_follow的pid
        LibXR::PID<float>::Param pid_wheel_omega_0,
        LibXR::PID<float>::Param pid_wheel_omega_1,
        LibXR::PID<float>::Param pid_wheel_omega_2,
@@ -96,14 +98,15 @@ class Helm {
        LibXR::PID<float>::Param pid_steer_speed_2,
        LibXR::PID<float>::Param pid_steer_speed_3)
       : PARAM(chassis_param),
-        motor_wheel_0_(motor_wheel_0),
-        motor_wheel_1_(motor_wheel_1),
-        motor_wheel_2_(motor_wheel_2),
-        motor_wheel_3_(motor_wheel_3),
-        motor_steer_0_(motor_steer_0),
-        motor_steer_1_(motor_steer_1),
-        motor_steer_2_(motor_steer_2),
-        motor_steer_3_(motor_steer_3),
+
+        motor_wheel_0_(motor_wheel_3),
+        motor_wheel_1_(motor_wheel_2),
+        motor_wheel_2_(motor_wheel_1),
+        motor_wheel_3_(motor_wheel_0),
+        motor_steer_0_(motor_steer_3),
+        motor_steer_1_(motor_steer_2),
+        motor_steer_2_(motor_steer_1),
+        motor_steer_3_(motor_steer_0),
         pid_follow_(pid_follow),
         pid_velocity_x_(pid_velocity_x),
         pid_velocity_y_(pid_velocity_y),
@@ -124,7 +127,7 @@ class Helm {
         [](bool in_isr, Helm *helm, uint32_t event_id) {
           UNUSED(in_isr);
           UNUSED(event_id);
-          helm->LostCtrl();
+          helm->chassis_event_ = static_cast<uint32_t>(Chassismode::RELAX);
         },
         this);
     cmd_->GetEvent().Register(CMD::CMD_EVENT_LOST_CTRL, lost_ctrl_callback);
@@ -138,10 +141,10 @@ class Helm {
   static void ThreadFunction(Helm *helm) {
     helm->mutex_.Lock();
     LibXR::Topic::ASyncSubscriber<CMD::ChassisCMD> cmd_suber("chassis_cmd");
-    //LibXR::Topic::ASyncSubscriber<float> current_yaw_suber("chassis_yaw");
+    LibXR::Topic::ASyncSubscriber<float> current_yaw_suber("chassis_yaw");
 
     cmd_suber.StartWaiting();
-    //current_yaw_suber.StartWaiting();
+    current_yaw_suber.StartWaiting();
 
     helm->mutex_.Unlock();
     while (true) {
@@ -150,16 +153,16 @@ class Helm {
         cmd_suber.StartWaiting();
       }
 
-      // if (current_yaw_suber.Available()) {
-      //   helm->current_yaw_ = current_yaw_suber.GetData();
-      //   current_yaw_suber.StartWaiting();
-      // }
+      if (current_yaw_suber.Available()) {
+        helm->current_yaw_ = -current_yaw_suber.GetData();
+        current_yaw_suber.StartWaiting();
+      }
 
       helm->mutex_.Lock();
       helm->Update();
       helm->UpdateCMD();
       helm->Helmcontrol();
-      helm->PowerControlUpdate();
+    //  helm->PowerControlUpdate();
       helm->mutex_.Unlock();
       helm->Output();
       helm->thread_.Sleep(2);
@@ -186,6 +189,7 @@ class Helm {
   }
 
   void PowerControlUpdate() {
+    return;
     /*给功率控制的数据*/
     /*3508数据*/
     motor_data_.rotorspeed_rpm_3508[0] = motor_wheel_0_->GetRPM();
@@ -225,7 +229,6 @@ class Helm {
       motor_data_.output_current_6020[i] = steer_out_[i];
     }
 
-    /*3508和6020参数拟合*/
     power_control_->CalculatePowerControlParam(
         motor_data_.output_current_3508, motor_data_.rotorspeed_rpm_3508,
         motor_data_.target_motor_omega_3508,
@@ -297,7 +300,7 @@ class Helm {
 
         target_vx_ = 0;
         target_vy_ = tmp_;
-        if (tmp_ >= 0.1) {
+        if (tmp_ >= 0.01) {
           direct_offset_ = M_PI_2 - atan2f(cmd_data_.y, cmd_data_.x);
         } else {
           direct_offset_ = 0;
@@ -309,9 +312,8 @@ class Helm {
         float beta = current_yaw_;
         float cos_beta = cosf(beta);
         float sin_beta = sinf(beta);
-        target_vx_ = cos_beta * cmd_data_.x -
-                     sin_beta * cmd_data_.y;  // 最大为1-(sqrt2)/2
-        target_vy_ = sin_beta * cmd_data_.x + cos_beta * cmd_data_.y;
+        target_vx_ = cos_beta * cmd_data_.x - sin_beta * cmd_data_.y;  // 最大为1-(sqrt2)/2
+        target_vy_ = sin_beta * cmd_data_.x  + cos_beta * cmd_data_.y;
       } break;
 
       default:
@@ -319,10 +321,12 @@ class Helm {
         target_vy_ = 0.0f;
         break;
     }
+
     // 计算 wz
     switch (chassis_event_) {
       case static_cast<uint32_t>(Chassismode::RELAX):
         target_omega_ = 0.0f;
+
         break;
       case static_cast<uint32_t>(Chassismode::INDEPENDENT):
         /* 独立模式每个轮子的方向相同，wz当作轮子转向角速度 */
@@ -363,7 +367,7 @@ class Helm {
       case static_cast<uint32_t>(Chassismode::FOLLOW):  // gimbal_follow
       case static_cast<uint32_t>(Chassismode::ROTOR):   // rotor
       {
-        float x = 0, y = 0, wheel_pos = 0;
+        float x = 0, y = 0, wheel_pos= 0;
         for (int i = 0; i < 4; i++) {
           wheel_pos = -static_cast<float>(i) * static_cast<float>(M_PI_2) +
                       static_cast<float>(M_PI) / 4.0f * 3.0f;
@@ -429,8 +433,7 @@ class Helm {
                 -speed_[i], motor_wheel_0_->GetRPM(), dt_);
 
             steer_angle_[i] = pid_steer_angle_[i].Calculate(
-                LibXR::CycleValue<float>(angle_[i] + static_cast<float>(M_PI) +
-                                         zero_[i]),
+               LibXR::CycleValue<float>( angle_[i] + static_cast<float>(M_PI) + zero_[i]),
                 motor_steer_0_->GetAngle(), dt_);
             steer_out_[i] = pid_steer_speed_[i].Calculate(
                 steer_angle_[i],
@@ -452,7 +455,7 @@ class Helm {
             wheel_out_[i] = pid_wheel_omega_[i].Calculate(
                 -speed_[i], motor_wheel_1_->GetRPM(), dt_);
             steer_angle_[i] = pid_steer_angle_[i].Calculate(
-                LibXR::CycleValue<float>(angle_[i] + static_cast<float>(M_PI) +
+                 LibXR::CycleValue<float>(angle_[i] + static_cast<float>(M_PI) +
                                          zero_[i]),
                 motor_steer_1_->GetAngle(), dt_);
             steer_out_[i] = pid_steer_speed_[i].Calculate(
@@ -523,16 +526,22 @@ class Helm {
   }
 
   void Output() {
-    if (chassis_event_ == static_cast<uint32_t>(Chassismode::RELAX)){
+    // if (power_control_data_.is_power_limited) {
+    //   for (int i = 0; i < 4; i++) {
+    //     wheel_out_[i] = power_control_data_.new_output_current_3508[i];
+    //     steer_out_[i] = power_control_data_.new_output_current_6020[i];
+    //   }
+    // }
+    if (chassis_event_ == static_cast<uint32_t>(Chassismode::RELAX)) {
       LostCtrl();
     }
-    else{
-      if (power_control_data_.is_power_limited) {
-        for (int i = 0; i < 4; i++) {
-          wheel_out_[i] = power_control_data_.new_output_current_3508[i];
-          steer_out_[i] = power_control_data_.new_output_current_6020[i];
-        }
-      }
+
+    else {
+      //  for(int i=0;i<4;i++){
+      //    wheel_out_[i]=0.0f;
+      //    steer_out_[i]=0.0f;
+      //  }
+
       motor_wheel_0_->CurrentControl(wheel_out_[0]);
       motor_wheel_1_->CurrentControl(wheel_out_[1]);
       motor_wheel_2_->CurrentControl(wheel_out_[2]);
@@ -541,9 +550,9 @@ class Helm {
       motor_steer_1_->CurrentControl(steer_out_[1]);
       motor_steer_2_->CurrentControl(steer_out_[2]);
       motor_steer_3_->CurrentControl(steer_out_[3]);
-
+    }
   }
-}
+
  private:
   const ChassisParam PARAM;
 
@@ -554,8 +563,12 @@ class Helm {
   float tmp_ = 0.0f;
   float wz_dir_mult_ = 1.0f; /* 小陀螺模式旋转方向乘数 */
   bool motor_reverse_[4]{false, false, false, false};
-  LibXR::CycleValue<float> zero_[4] = {3.22642668, 2.09004819, 2.5839184,
-                                       6.25634098};
+  LibXR::CycleValue<float> zero_[4] = {
+        4.18700,
+    0.4249,
+       3.68615971,
+      0.94561276,
+  };
 
   float current_yaw_ = 0.0f;
   float speed_[4] = {0.0f, 0.0f, 0.0f, 0.0f};  // 转子的转速
@@ -564,7 +577,9 @@ class Helm {
   float steer_out_[4] = {0.0f, 0.0f, 0.0f, 0.0f};
   float steer_angle_[4] = {0.0, 0.0, 0.0, 0.0};
 
-  float motor_max_speed_ = 9000.0;
+  // float current_angle_[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+
+  float motor_max_speed_ = 3000.0;
 
   float direct_offset_ = 0.0f;
   LibXR::CycleValue<float> main_direct_ = 0.0f;
@@ -580,8 +595,6 @@ class Helm {
   RMMotor *motor_steer_1_;
   RMMotor *motor_steer_2_;
   RMMotor *motor_steer_3_;
-
-
   LibXR::PID<float> pid_follow_;
   LibXR::PID<float> pid_velocity_x_;
   LibXR::PID<float> pid_velocity_y_;
@@ -605,7 +618,7 @@ class Helm {
 
   CMD *cmd_;
 
-  MotorData motor_data_={};
+  MotorData motor_data_;
   PowerControl *power_control_;
   PowerControl::PowerControlData power_control_data_;
 

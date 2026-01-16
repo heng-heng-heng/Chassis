@@ -149,10 +149,11 @@ struct MotorData {
 
 enum class ChassisEvent : uint8_t {
   SET_MODE_RELAX,
+  SET_MODE_INDEPENDENT,
   SET_MODE_FOLLOW,
   SET_MODE_ROTOR,
   SET_MODE_6020_FOLLOW,
-  SET_MODE_INDEPENDENT,
+
 };
 
 template <typename ChassisType>
@@ -214,11 +215,11 @@ class Chassis : public LibXR::Application {
 
     chassis_event_.Register(static_cast<uint32_t>(ChassisEvent::SET_MODE_RELAX),callback);
 
-    chassis_event_.Register(static_cast<uint32_t>(ChassisEvent::SET_MODE_FOLLOW), callback);
+    chassis_event_.Register(static_cast<uint32_t>(ChassisEvent::SET_MODE_INDEPENDENT), callback);
 
     chassis_event_.Register(static_cast<uint32_t>(ChassisEvent::SET_MODE_ROTOR), callback);
 
-    chassis_event_.Register(static_cast<uint32_t>(ChassisEvent::SET_MODE_INDEPENDENT), callback);
+    chassis_event_.Register(static_cast<uint32_t>(ChassisEvent::SET_MODE_FOLLOW), callback);
   }
 
   /**

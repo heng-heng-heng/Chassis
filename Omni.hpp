@@ -43,8 +43,8 @@ class Omni {
   enum class Chassismode : uint8_t {
     RELAX,
     ROTOR,
-    FOLLOW_GIMBAL_INTERSECT,
     FOLLOW_GIMBAL_CROSS,
+    FOLLOW_GIMBAL_INTERSECT,
     INDEPENDENT,
   };
   struct Eulerangle {
@@ -160,12 +160,13 @@ class Omni {
     omni->mutex_.Lock();
 
     LibXR::Topic::ASyncSubscriber<CMD::ChassisCMD> cmd_suber("chassis_cmd");
-
     cmd_suber.StartWaiting();
+    // LibXR::Topic::ASyncSubscriber<float> chassis_yaw_suber("chassis_yaw");
+    // chassis_yaw_suber.StartWaiting();
     LibXR::Topic::ASyncSubscriber<LibXR::EulerAngle<float>> euler_suber("ahrs_euler");
     euler_suber.StartWaiting();
-    LibXR::Topic::ASyncSubscriber<float>current_yaw_suber("chassis_yaw");
-    current_yaw_suber.StartWaiting();
+    LibXR::Topic::ASyncSubscriber<float>chassis_yaw_("chassis_yaw");
+    chassis_yaw_.StartWaiting();
 
     omni->mutex_.Unlock();
 
@@ -181,6 +182,10 @@ class Omni {
         omni->current_pitch_ = omni->euler_.Pitch();
         omni->current_roll_ = omni->euler_.Roll();
         omni->current_yaw_ = omni->euler_.Yaw();
+      }
+      if (chassis_yaw_.Available()) {
+        omni->chassis_yaw_ = -chassis_yaw_.GetData();
+        chassis_yaw_.StartWaiting();
       }
 
       omni->mutex_.Lock();
@@ -287,7 +292,7 @@ class Omni {
    */
   void UpdateCMD() {
    // const float SQRT2 = 1.41421356237f;
-   float max_v = PARAM.wheel_radius * MOTOR_MAX_OMEGA;  // 电机最大角速 * 半径
+   float max_v = PARAM.wheel_radius * MOTOR_MAX_OMEGA/PARAM.reductionratio;  // 电机最大角速 * 半径
    switch (chassis_event_) {
      case static_cast<uint32_t>(Chassismode::RELAX):
        target_vx_ = 0.0f;
@@ -296,15 +301,15 @@ class Omni {
        break;
      case static_cast<uint32_t>(Chassismode::ROTOR):
        this->target_omega_ =
-           PARAM.wheel_radius * MOTOR_MAX_OMEGA * PARAM.wheel_to_center;
+           PARAM.wheel_radius * MOTOR_MAX_OMEGA * PARAM.wheel_to_center*0.1;
        break;
      case static_cast<uint32_t>(Chassismode::FOLLOW_GIMBAL_INTERSECT):
        target_omega_ =
-           this->pid_follow_.Calculate(0.0f, this->current_yaw_, this->dt_);
+           this->pid_follow_.Calculate(0.0f, this->chassis_yaw_, this->dt_);
        break;
      case static_cast<uint32_t>(Chassismode::FOLLOW_GIMBAL_CROSS):
        target_omega_ = this->pid_follow_.Calculate(
-           0.0f, static_cast<float>(this->current_yaw_ - M_PI / 4.0f),
+           0.0f, static_cast<float>(this->chassis_yaw_ - M_PI / 4.0f),
            this->dt_);
        break;
      case static_cast<uint32_t>(Chassismode::INDEPENDENT):
@@ -324,7 +329,7 @@ class Omni {
       case static_cast<uint32_t>(Chassismode::ROTOR):
       case static_cast<uint32_t>(Chassismode::FOLLOW_GIMBAL_INTERSECT):
       case static_cast<uint32_t>(Chassismode::FOLLOW_GIMBAL_CROSS): {
-        float beta = this->current_yaw_;
+        float beta = this->chassis_yaw_;
         float cos_beta = cosf(beta);
         float sin_beta = sinf(beta);
         this->target_vx_ = (cos_beta * this->cmd_data_.x * max_v -
@@ -361,14 +366,19 @@ class Omni {
     gy_ff_ = PARAM.gravity * SoftDeadzone(sin(current_roll_), sin(k));
 
     const float SQRT2_2 = 0.70710678118f;
-    torque_ff_[0] = baseff_[0] * (gx_ff_ - gy_ff_) * SQRT2_2 / 2;
-    torque_ff_[1] = baseff_[1] * (gx_ff_ + gy_ff_) * SQRT2_2 / 2;
-    torque_ff_[2] = baseff_[2] * (-gx_ff_ + gy_ff_) * SQRT2_2 / 2;
-    torque_ff_[3] = baseff_[3] * (-gx_ff_ - gy_ff_) * SQRT2_2 / 2;
+    baseff_[0] = (gx_ff_ - gy_ff_) * SQRT2_2 / 2;
+    baseff_[1] = (gx_ff_ + gy_ff_) * SQRT2_2 / 2;
+    baseff_[2] = (-gx_ff_ + gy_ff_) * SQRT2_2 / 2;
+    baseff_[3] = (-gx_ff_ - gy_ff_) * SQRT2_2 / 2;
+
+    torque_ff_[0] = baseff_[0] * PARAM.wheel_radius;
+    torque_ff_[1] = baseff_[1] * PARAM.wheel_radius;
+    torque_ff_[2] = baseff_[2] * PARAM.wheel_radius;
+    torque_ff_[3] = baseff_[3] * PARAM.wheel_radius;
   }
   /**
    * @brief 全向轮底盘正运动学解算
-   * @details 根据四个全向轮的角速度，解算出底盘当前的运动状态
+   * @details 根据四个全向轮的角速度，解算出底盘当前的运动状态,now_vx,now_vy是轮子实际速度
    */
   void SelfResolution() {
     // motor_wheel_i_->GetOmega() 是电机输出轴角速度（rad/s）
@@ -396,8 +406,7 @@ class Omni {
     const float SQRT2_2 = 0.7071067811;
     target_motor_omega_[0] = (SQRT2_2 * (target_vx_ - target_vy_) +
                               target_omega_ * PARAM.wheel_to_center) /
-                             PARAM.wheel_radius *
-                             PARAM.reductionratio;  // rad/s (轮端)
+                             PARAM.wheel_radius * PARAM.reductionratio;  // rad/s (轮端)
     target_motor_omega_[1] = (SQRT2_2 * (target_vx_ + target_vy_) +
                               target_omega_ * PARAM.wheel_to_center) /
                              PARAM.wheel_radius * PARAM.reductionratio;
@@ -460,15 +469,19 @@ class Omni {
 
         /*如果超功率了output根据功率的数值来计算*/
 
-        if (power_control_data_.is_power_limited) {
-          for (int i = 0; i < 4; i++) {
-            output_[i] = power_control_data_.new_output_current_3508[i] /
-                         (motor_wheel_0_->GetLSB() / PARAM.reductionratio /
-                          motor_wheel_0_->KGetTorque() /
-                          motor_wheel_0_->GetCurrentMAX());
-          }
+        // if (power_control_data_.is_power_limited) {
+        //   for (int i = 0; i < 4; i++) {
+        //     output_[i] = power_control_data_.new_output_current_3508[i] /
+        //                  (motor_wheel_0_->GetLSB() / PARAM.reductionratio /
+        //                   motor_wheel_0_->KGetTorque() /
+        //                   motor_wheel_0_->GetCurrentMAX());
+        //   }
+        // }
+        for (int i = 0; i < 4; i++) {
+          // output_[i] = (target_motor_current_[i] +
+          //               target_motor_force_[i] );
+          output_[i] = (target_motor_current_[i]);
         }
-
         motor_wheel_0_->TorqueControl(output_[0], PARAM.reductionratio);
         motor_wheel_1_->TorqueControl(output_[1], PARAM.reductionratio);
         motor_wheel_2_->TorqueControl(output_[2], PARAM.reductionratio);
@@ -573,6 +586,7 @@ class Omni {
   float current_yaw_ = 0.0f;
   float current_roll_ = 0.0;
   float current_pitch_ = 0.0;
+  float chassis_yaw_ = 0.0f;
   float torque_ff_[4]{0.0, 0.0, 0.0, 0.0};
   float baseff_[4]{0.0, 0.0, 0.0, 0.0};
 
