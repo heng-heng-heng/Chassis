@@ -144,7 +144,6 @@ class Mecanum {
    */
   static void ThreadFunction(Mecanum *mecanum) {
     mecanum->mutex_.Lock();
-    auto last_time = LibXR::Timebase::GetMilliseconds();
 
     LibXR::Topic::ASyncSubscriber<CMD::ChassisCMD> cmd_suber("chassis_cmd");
 
@@ -399,39 +398,28 @@ class Mecanum {
     target_motor_current_[3] = pid_wheel_omega_[3].Calculate(
         target_motor_omega_[3], motor_wheel_3_->GetOmega(), dt_);
 
-    // /*如果超功率了output根据功率的数值来计算*/
-    // if (power_control_data_.is_power_limited) {
-    //   for (int i = 0; i < 4; i++) {
-    //     output_[i] =
-    //         power_control_data_.new_output_current_3508[i] /
-    //         (motor_wheel_0_->GetLSB() / PARAM.reductionratio /
-    //          motor_wheel_0_->KGetTorque() / motor_wheel_0_->GetCurrentMAX());
-    //   }
-    // }
-    // /*如果没超功率正常算*/
-    // else {
-    //   for (int i = 0; i < 4; i++) {
-    //     output_[i] = (target_motor_current_[i] +
-    //                   target_motor_force_[i] * PARAM.wheel_radius);
-
-
-    //   }
-    // }
-    for (int i = 0; i < 4; i++) {
-      output_[i] = (target_motor_current_[i] +
-                    target_motor_force_[i] * PARAM.wheel_radius);
+    /*如果超功率了output根据功率的数值来计算*/
+    if (power_control_data_.is_power_limited) {
+      for (int i = 0; i < 4; i++) {
+        output_[i] =
+            power_control_data_.new_output_current_3508[i] /
+            (motor_wheel_0_->GetLSB() / PARAM.reductionratio /
+             motor_wheel_0_->KGetTorque() / motor_wheel_0_->GetCurrentMAX());
       }
+    }
+    /*如果没超功率正常算*/
+    else {
+      for (int i = 0; i < 4; i++) {
+        output_[i] = (target_motor_current_[i] +
+                      target_motor_force_[i] * PARAM.wheel_radius);
 
 
-      motor_wheel_0_->TorqueControl(output_[0], PARAM.reductionratio);
-      motor_wheel_1_->TorqueControl(output_[1], PARAM.reductionratio);
-      motor_wheel_2_->TorqueControl(output_[2], PARAM.reductionratio);
-      motor_wheel_3_->TorqueControl(output_[3], PARAM.reductionratio);
-
-      motor_wheel_0_->TorqueControl(1, PARAM.reductionratio);
-      motor_wheel_1_->TorqueControl(1, PARAM.reductionratio);
-      motor_wheel_2_->TorqueControl(1, PARAM.reductionratio);
-      motor_wheel_3_->TorqueControl(1, PARAM.reductionratio);
+      }
+    }
+    motor_wheel_0_->TorqueControl(output_[0], PARAM.reductionratio);
+    motor_wheel_1_->TorqueControl(output_[1], PARAM.reductionratio);
+    motor_wheel_2_->TorqueControl(output_[2], PARAM.reductionratio);
+    motor_wheel_3_->TorqueControl(output_[3], PARAM.reductionratio);
     }
 
   void LostCtrl() {

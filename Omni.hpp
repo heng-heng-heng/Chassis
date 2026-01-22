@@ -468,15 +468,6 @@ class Omni {
             motor_wheel_3_->GetOmega() / PARAM.reductionratio, dt_);
 
         /*如果超功率了output根据功率的数值来计算*/
-
-        // if (power_control_data_.is_power_limited) {
-        //   for (int i = 0; i < 4; i++) {
-        //     output_[i] = power_control_data_.new_output_current_3508[i] /
-        //                  (motor_wheel_0_->GetLSB() / PARAM.reductionratio /
-        //                   motor_wheel_0_->KGetTorque() /
-        //                   motor_wheel_0_->GetCurrentMAX());
-        //   }
-        // }
         for (int i = 0; i < 4; i++) {
          output_[i] = (target_motor_current_[i] +
                          target_motor_force_[i] );
