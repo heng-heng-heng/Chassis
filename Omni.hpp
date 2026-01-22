@@ -161,8 +161,7 @@ class Omni {
 
     LibXR::Topic::ASyncSubscriber<CMD::ChassisCMD> cmd_suber("chassis_cmd");
     cmd_suber.StartWaiting();
-    // LibXR::Topic::ASyncSubscriber<float> chassis_yaw_suber("chassis_yaw");
-    // chassis_yaw_suber.StartWaiting();
+
     LibXR::Topic::ASyncSubscriber<LibXR::EulerAngle<float>> euler_suber("ahrs_euler");
     euler_suber.StartWaiting();
     LibXR::Topic::ASyncSubscriber<float>chassis_yaw_("chassis_yaw");
@@ -179,7 +178,7 @@ class Omni {
         omni->euler_ = euler_suber.GetData();
         euler_suber.StartWaiting();
 
-        omni->current_pitch_ = omni->euler_.Pitch();
+        omni->current_pitch_ = omni->euler_.Pitch();//这里后期需要改成相对角度
         omni->current_roll_ = omni->euler_.Roll();
         omni->current_yaw_ = omni->euler_.Yaw();
       }
@@ -201,7 +200,7 @@ class Omni {
     }
   }
 
-  /**
+  /**cmd_data_
    * @brief 更新电机状态
    * @details 获取当前时间戳并更新所有驱动轮电机的状态
    */
@@ -311,6 +310,7 @@ class Omni {
        target_omega_ = this->pid_follow_.Calculate(
            0.0f, static_cast<float>(this->chassis_yaw_ - M_PI / 4.0f),
            this->dt_);
+       this->chassis_yaw_ = static_cast<float> (this->chassis_yaw_ - M_PI / 4.0f);
        break;
      case static_cast<uint32_t>(Chassismode::INDEPENDENT):
        target_omega_ = PARAM.wheel_radius * MOTOR_MAX_OMEGA * cmd_data_.z /
@@ -478,14 +478,15 @@ class Omni {
         //   }
         // }
         for (int i = 0; i < 4; i++) {
-          // output_[i] = (target_motor_current_[i] +
-          //               target_motor_force_[i] );
-          output_[i] = (target_motor_current_[i]);
+         output_[i] = (target_motor_current_[i] +
+                         target_motor_force_[i] );
         }
         motor_wheel_0_->TorqueControl(output_[0], PARAM.reductionratio);
         motor_wheel_1_->TorqueControl(output_[1], PARAM.reductionratio);
         motor_wheel_2_->TorqueControl(output_[2], PARAM.reductionratio);
         motor_wheel_3_->TorqueControl(output_[3], PARAM.reductionratio);
+
+
       }
     }
 
